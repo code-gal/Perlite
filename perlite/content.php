@@ -65,7 +65,6 @@ function parseContent($requestFile)
 	global $htmlSafeMode;
 	global $relPathes;
 
-
 	$Parsedown = new PerliteParsedown();
 	$Parsedown->setSafeMode($htmlSafeMode);
 	$Parsedown->setBreaksEnabled($lineBreaks);
@@ -84,6 +83,53 @@ function parseContent($requestFile)
 
 	$wordCount = str_word_count($content);
 	$charCount = strlen($content);
+
+	error_log("DEBUG EARLY: content length = " . strlen($content));
+	error_log("DEBUG EARLY: content sample = " . substr($content, 0, 500));
+
+	// FIX: Pre-process Standard Markdown Links/Images BEFORE any parsing
+	// Convert relative paths like ../../image.png to /Vault/Folder/../../image.png
+	
+	// Calculate src_path early (before Parsedown)
+	if ($relPathes) {
+		$early_path = $startDir;
+	} else {
+		$early_path = $startDir . $path;
+	}
+	$early_src_path = $uriPath . $early_path;
+	
+	error_log("DEBUG EARLY: src_path = " . $early_src_path);
+	
+	// 1. Images: ![alt](url)
+	$content = preg_replace_callback('/!\[(.*?)\]\((.*?)\)/', function($matches) use ($early_src_path) {
+		$alt = $matches[1];
+		$url = $matches[2];
+		error_log("DEBUG IMAGE: alt=$alt, url=$url");
+		// Skip absolute URLs, root paths, or data URIs
+		if (preg_match('/^(http|https|\/|data:)/', $url)) {
+			error_log("DEBUG IMAGE: skipped (absolute)");
+			return $matches[0];
+		}
+		$newPath = "![$alt]($early_src_path/$url)";
+		error_log("DEBUG IMAGE: converted to $newPath");
+		return $newPath;
+	}, $content);
+
+	// 2. Links: [text](url)
+	$content = preg_replace_callback('/\[(.*?)\]\((.*?)\)/', function($matches) use ($early_src_path) {
+		$text = $matches[1];
+		$url = $matches[2];
+		error_log("DEBUG LINK: text=$text, url=$url");
+		// Skip absolute URLs, anchors, etc.
+		if (preg_match('/^(http|https|\/|#|mailto:|tel:)/', $url)) {
+			error_log("DEBUG LINK: skipped (absolute)");
+			return $matches[0];
+		}
+		$newPath = "[$text]($early_src_path/$url)";
+		error_log("DEBUG LINK: converted to $newPath");
+		return $newPath;
+	}, $content);
+
 	$content = $Parsedown->text($content);
 
 
