@@ -124,7 +124,7 @@ function parseContent($requestFile)
 		$href = $matches[2];
 		$after = $matches[3];
 		
-		// At this point $path = "DigitalGarden/技术笔记/.../folder"
+		// At this point $path = "root_node/obsidian_vault/.../folder"
 		$src_path = $uriPath . $path;
 		
 		// Skip absolute URLs, anchors, mailto, etc.
