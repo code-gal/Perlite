@@ -84,54 +84,28 @@ function parseContent($requestFile)
 	$wordCount = str_word_count($content);
 	$charCount = strlen($content);
 
-	error_log("DEBUG EARLY: content length = " . strlen($content));
-	error_log("DEBUG EARLY: content sample = " . substr($content, 0, 500));
-
 	// FIX: Pre-process Standard Markdown Links/Images BEFORE any parsing
 	// Convert relative paths like ../../image.png to /Vault/Folder/../../image.png
 	
 	// Calculate src_path early (before Parsedown)
-	if ($relPathes) {
-		$early_path = $startDir;
-	} else {
-		$early_path = $startDir . $path;
-	}
-	$early_src_path = $uriPath . $early_path;
+	// Need to reconstruct the full path including the vault name
+	$early_src_path = $uriPath . $startDir . $path;
 	
-	error_log("DEBUG EARLY: src_path = " . $early_src_path);
-	
-	// 1. Images: ![alt](url)
+	// 1. Images: ![alt](url) - convert relative paths to absolute
 	$content = preg_replace_callback('/!\[(.*?)\]\((.*?)\)/', function($matches) use ($early_src_path) {
 		$alt = $matches[1];
 		$url = $matches[2];
-		error_log("DEBUG IMAGE: alt=$alt, url=$url");
 		// Skip absolute URLs, root paths, or data URIs
 		if (preg_match('/^(http|https|\/|data:)/', $url)) {
-			error_log("DEBUG IMAGE: skipped (absolute)");
 			return $matches[0];
 		}
-		$newPath = "![$alt]($early_src_path/$url)";
-		error_log("DEBUG IMAGE: converted to $newPath");
-		return $newPath;
+		return "![$alt]($early_src_path/$url)";
 	}, $content);
 
-	// 2. Links: [text](url)
-	$content = preg_replace_callback('/\[(.*?)\]\((.*?)\)/', function($matches) use ($early_src_path) {
-		$text = $matches[1];
-		$url = $matches[2];
-		error_log("DEBUG LINK: text=$text, url=$url");
-		// Skip absolute URLs, anchors, etc.
-		if (preg_match('/^(http|https|\/|#|mailto:|tel:)/', $url)) {
-			error_log("DEBUG LINK: skipped (absolute)");
-			return $matches[0];
-		}
-		$newPath = "[$text]($early_src_path/$url)";
-		error_log("DEBUG LINK: converted to $newPath");
-		return $newPath;
-	}, $content);
+	// Note: Regular links [text](url) are processed AFTER Parsedown in HTML stage
+	// to avoid encoding issues and path duplication in special contexts
 
 	$content = $Parsedown->text($content);
-
 
 	// Relative or absolute pathes
 	if ($relPathes) {
@@ -142,26 +116,56 @@ function parseContent($requestFile)
 		$path = $startDir . $path;
 	}
 
-	// fix links (not used)
-	// $oldPath = $startDir . $path;
+	// FIX: Post-process standard Markdown links in HTML
+	// Convert relative href paths to absolute for non-md files
+	// Use the modified $path which already contains startDir
+	$content = preg_replace_callback('/<a\s+([^>]*?)href="([^"]+)"([^>]*?)>/', function($matches) use ($uriPath, $path) {
+		$before = $matches[1];
+		$href = $matches[2];
+		$after = $matches[3];
+		
+		// At this point $path = "DigitalGarden/技术笔记/.../folder"
+		$src_path = $uriPath . $path;
+		
+		// Skip absolute URLs, anchors, mailto, etc.
+		if (preg_match('/^(http|https|\/|#|mailto:|tel:)/', $href)) {
+			return $matches[0];
+		}
+		
+		// Skip if already has internal-link class (processed by Perlite's Wiki Link logic)
+		if (strpos($before . $after, 'internal-link') !== false) {
+			return $matches[0];
+		}
+		
+		// For md files: leave them as-is (should use Wiki Links [[...]] for internal navigation)
+		if (preg_match('/\.md(\?|#|$)/', $href)) {
+			return $matches[0];
+		}
+		
+		// For other files (zip, pdf, etc.), convert relative path to absolute
+		// Add internal-link class and target="_blank" for consistency
+		$newHref = $src_path . '/' . $href;
+		$newAttrs = $before . 'href="' . $newHref . '" class="internal-link" target="_blank" rel="noopener noreferrer"' . $after;
+		// Remove duplicate attributes
+		$newAttrs = preg_replace('/\s*(class|target|rel)="[^"]*"/i', '', $newAttrs);
+		return '<a ' . $newAttrs . ' href="' . $newHref . '" class="internal-link" target="_blank" rel="noopener noreferrer">';
+	}, $content);
 
-	// // fix relativ links in parent folders
-	// $pattern = array('/(\[\[)(\.\.\/.*)(\]\])/');
-	// $content = fixLinks($pattern, $content, $oldPath, false);
+	// FIX: Add popup functionality to standard Markdown images
+	// Wrap <img> tags with <a href="#" class="pop"> to enable image popup like Wiki Links
+	$content = preg_replace(
+		'/<img([^>]+)class="([^"]*)external-link([^"]*)"([^>]*)>/',
+		'<p><a href="#" class="pop"><img$1class="$2images$3"$4></a></p>',
+		$content
+	);
 
-	// // // fix relativ links in same folders
-	//  $pattern = array('/(\[\[)+([^\/]+?)(\]\])/');
-	//  $content = fixLinks($pattern, $content, $path, true);
-
-	// // fix relativ links in subfolder and same folders
-	// $pattern = array('/(\[\[)(?!Demo Documents\/)(.+)(\]\])/');
-	// $content = fixLinks($pattern, $content, $path, true);
-
-
+	// Calculate src_path for file links (using already modified $path)
 	$linkFileTypes = implode('|', $allowedFileLinkTypes);
 
 	$allowedImageTypes = '(\.png|\.jpg|\.jpeg|\.svg|\.gif|\.bmp|\.tif|\.tiff|\.webp)';
 
+	// At this point, $path already contains the full path (startDir + original path)
+	// So we just need to prepend uriPath
 	$src_path = $uriPath . $path;
 
 	// embedded pdf links
@@ -240,7 +244,7 @@ function parseContent($requestFile)
 
 	// search for links in the same folder
 	$pattern = array('/(\[\[)(.*?)(\]\])/');
-	$content = translateLink($pattern, $content, $mdpath, true);
+	$content = translateLink($pattern, $content, $path, true);
 
 
 	// add some meta data
@@ -370,7 +374,8 @@ function translateLink($pattern, $content, $path, $sameFolder)
 			if ($sameFolder == false) {
 				$countDirs = count(explode("../", $matches[0]));
 				$countDirs = $countDirs - 1;
-				$newPath = array_splice($pathSplit, 1, -$countDirs);
+				// FIX: Start from index 0 instead of 1 to preserve DigitalGarden prefix
+				$newPath = array_splice($pathSplit, 0, -$countDirs);
 				$newAbPath = implode('/', $newPath);
 			}
 
