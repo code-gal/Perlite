@@ -49,7 +49,9 @@ function parseContent($requestFile)
 	global $allowedFileLinkTypes;
 	global $htmlSafeMode;
 	global $relPathes;
-	$Parsedown = new PerliteParsedown();
+	require_once 'ParsedownExtra.php';
+	// $Parsedown = new PerliteParsedown();
+	$Parsedown = new ParsedownExtra();
 	$Parsedown->setSafeMode($htmlSafeMode);
 	$Parsedown->setBreaksEnabled($lineBreaks);
 	$cleanFile = '';
