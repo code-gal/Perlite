@@ -75,7 +75,7 @@ if (!isset($lineBreaks))
 
 // file types
 if (empty($allowedFileLinkTypes))
-	$allowedFileLinkTypes = empty(getenv('ALLOWED_FILE_LINK_TYPES')) ? ['pdf', 'mp4'] : explode(",", getenv('ALLOWED_FILE_LINK_TYPES'));
+	$allowedFileLinkTypes = empty(getenv('ALLOWED_FILE_LINK_TYPES')) ? ['pdf', 'mp4', 'mp3', 'm4a', 'wav', 'webm', 'mov', 'avi', 'zip', '7z', 'rar', 'tar', 'gz', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'json', 'md'] : explode(",", getenv('ALLOWED_FILE_LINK_TYPES'));
 
 // disable PopHovers
 if (empty($disablePopHovers))
